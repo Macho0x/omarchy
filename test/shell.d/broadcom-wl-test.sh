@@ -106,10 +106,11 @@ pass "the migration leaves an install that has the driver alone"
 
 # A Mac whose wl was removed on purpose must not get it back: this is #7593,
 # where the driver hard-freezes a 2011 MacBook Air on BCM4331.
-run_migration 4331
-run_migration 43a0
-[[ ! -s $calls ]] ||
-  fail "the migration does not hand the covered Macs a driver they dropped on purpose" "$(cat "$calls")"
+for wifi_id in 4331 43a0; do
+  run_migration "$wifi_id"
+  [[ ! -s $calls ]] ||
+    fail "the migration does not hand the covered Macs a driver they dropped on purpose" "$(cat "$calls")"
+done
 pass "the migration leaves the Mac adapters its leaf already covered alone"
 
 run_migration
