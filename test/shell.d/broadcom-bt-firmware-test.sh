@@ -7,7 +7,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 leaf="$ROOT/install/hardware/fix-bcm20702a1-bluetooth.sh"
 all="$ROOT/install/hardware/all.sh"
 other_packages="$ROOT/install/omarchy-other.packages"
-migration="$ROOT/migrations/1792147782.sh"
+migration="$ROOT/migrations/1792401201.sh"
 
 grep -q 'run_logged .*hardware/fix-bcm20702a1-bluetooth.sh' "$all" ||
   fail "the Broadcom Bluetooth firmware setup runs during hardware setup"
@@ -28,6 +28,8 @@ cat >"$stub_bin/omarchy-pkg-add" <<'SH'
 #!/bin/bash
 
 printf 'omarchy-pkg-add\t%s\n' "$*" >>"$TEST_LOG"
+
+[[ ${PKG_ADD_FAIL:-0} == 0 ]]
 SH
 
 cat >"$stub_bin/omarchy-pkg-missing" <<'SH'
@@ -118,10 +120,10 @@ pass "a machine with no USB device is left alone"
 # The install-time leaf only reaches machines set up after it shipped, so the
 # migration has to reach an existing install.
 run_migration() {
-  local installed="${1:-0}" owned="${2:-0}"
+  local installed="${1:-0}" owned="${2:-0}" add_fails="${3:-0}"
   : >"$calls"
 
-  PKG_INSTALLED="$installed" FIRMWARE_OWNED="$owned" TEST_LOG="$calls" PATH="$stub_bin:$PATH" \
+  PKG_INSTALLED="$installed" FIRMWARE_OWNED="$owned" PKG_ADD_FAIL="$add_fails" TEST_LOG="$calls" PATH="$stub_bin:$PATH" \
     OMARCHY_BCM20702A1_USB_ROOT="$usb_root" \
     OMARCHY_BCM20702A1_FIRMWARE="$firmware" \
     bash -euo pipefail "$migration" >/dev/null
@@ -135,8 +137,11 @@ grep -Fxq $'omarchy-state\tset reboot-required' "$calls" ||
   fail "the migration asks for the reboot that loads the firmware" "$(cat "$calls")"
 pass "the migration installs the firmware package on an existing install"
 
+printf 'already-there\n' >"$firmware"
 run_migration 1
 [[ ! -s $calls ]] || fail "an install that already has the package is left untouched" "$(cat "$calls")"
+[[ $(<"$firmware") == "already-there" ]] ||
+  fail "an install that already has the package keeps the firmware file" "$(cat "$firmware")"
 pass "the migration leaves an install that has the package alone"
 
 # Following the ArchWiki page leaves a hand-extracted file at the path the
@@ -154,13 +159,31 @@ grep -Fxq $'omarchy-pkg-add\tbroadcom-bt-firmware' "$calls" ||
   fail "the migration installs over the path the hand-extracted file held" "$(cat "$calls")"
 pass "the migration hands the path to the package"
 
+# The install can fail because the package is not in the repository yet. The
+# hand-extracted file has to be back where the kernel reads it, and the
+# migration has to stay pending.
+printf 'hand-extracted\n' >"$firmware"
+rm -f "$firmware.omarchy-backup"
+run_migration 0 0 1 && fail "a failed firmware install leaves the migration pending"
+[[ -e $firmware ]] || fail "a failed firmware install puts the hand-extracted file back"
+[[ ! -e $firmware.omarchy-backup ]] || fail "a failed firmware install does not leave the firmware aside"
+[[ $(<"$firmware") == "hand-extracted" ]] ||
+  fail "the restored file is the one the migration moved" "$(cat "$firmware")"
+grep -Fxq $'omarchy-pkg-add\tbroadcom-bt-firmware' "$calls" ||
+  fail "a failed firmware install had tried to install the package" "$(cat "$calls")"
+grep -Fxq $'omarchy-state\tset reboot-required' "$calls" &&
+  fail "a failed firmware install does not ask for a reboot" "$(cat "$calls")"
+pass "a failed firmware install puts the hand-extracted file back"
+
 # A file the package does own is not touched: it is the firmware the kernel is
 # already looking for.
 printf 'package-owned\n' >"$firmware"
 run_migration 0 1
-grep -Fxq $'sudo\tmv -f '"$firmware" "$calls" &&
+grep -Fxq $'sudo\tmv -f '"$firmware $firmware.omarchy-backup" "$calls" &&
   fail "the migration moves a file the package owns" "$(cat "$calls")"
 [[ -e $firmware ]] || fail "a package-owned firmware file survives the migration"
+[[ $(<"$firmware") == "package-owned" ]] ||
+  fail "a package-owned firmware file keeps its contents" "$(cat "$firmware")"
 pass "the migration leaves a package-owned firmware file in place"
 
 device 1-2 0a5c 21e8

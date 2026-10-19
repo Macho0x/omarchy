@@ -28,17 +28,30 @@ done
 
 [[ $bluetooth_device_present == true ]] || exit 0
 
-# Following the ArchWiki page for this laptop means a hand-extracted .hcd sitting at the path the package owns, and
-# pacman refuses to install over a file no package owns. Keep that file under the backup name Omarchy uses
-# elsewhere, and let the package take the path from here on; the firmware it installs is the same.
-if [[ -f $firmware ]] && ! pacman -Qo "$firmware" >/dev/null 2>&1; then
-  sudo mv -f "$firmware" "$firmware.omarchy-backup"
-fi
-
 # Only the installation needs the reboot. Every user after the first one on a machine that already has the package
 # must not be told to reboot again for it.
 if omarchy-pkg-missing broadcom-bt-firmware; then
-  omarchy-pkg-add broadcom-bt-firmware
+  # Following the ArchWiki page for this laptop means a hand-extracted .hcd sitting at the path the package owns, and
+  # pacman refuses to install over a file no package owns. Keep that file under the backup name Omarchy uses
+  # elsewhere, and let the package take the path from here on; the firmware it installs is the same.
+  #
+  # Move it only once the package is actually missing. omarchy-migrate runs this with set -e and writes the marker
+  # after it returns, so a failed install stays pending: putting the file back leaves Bluetooth working until the
+  # next try, instead of the next boot finding neither the hand-extracted file nor the package.
+  firmware_moved=false
+
+  if [[ -f $firmware ]] && ! pacman -Qo "$firmware" >/dev/null 2>&1; then
+    sudo mv -f "$firmware" "$firmware.omarchy-backup"
+    firmware_moved=true
+  fi
+
+  if ! omarchy-pkg-add broadcom-bt-firmware; then
+    if [[ $firmware_moved == true ]]; then
+      sudo mv -f "$firmware.omarchy-backup" "$firmware"
+    fi
+
+    exit 1
+  fi
 
   # btusb reads the firmware when it probes the controller, so it is not in use until the next boot.
   omarchy-state set reboot-required

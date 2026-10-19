@@ -7,7 +7,7 @@ source "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/base-test.sh"
 leaf="$ROOT/install/hardware/fix-bcm43xx.sh"
 all="$ROOT/install/hardware/all.sh"
 other_packages="$ROOT/install/omarchy-other.packages"
-migration="$ROOT/migrations/1792147781.sh"
+migration="$ROOT/migrations/1792401200.sh"
 
 grep -q 'run_logged .*hardware/fix-bcm43xx.sh' "$all" ||
   fail "the Broadcom wl setup runs during hardware setup"
